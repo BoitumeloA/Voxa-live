@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Voxa Live - South Africa</title>
+<style>
+body { margin:0; font-family:'Segoe UI',sans-serif; display:flex; background:#f0f2f5; }
+.sidebar { width:220px; background:#111b21; color:white; padding:20px; height:100vh; display:flex; flex-direction:column; }
+.sidebar h2 { margin-bottom:20px; }
+.sidebar button { padding:12px; margin-bottom:10px; border:none; border-radius:8px; background:#202c33; color:white; cursor:pointer; transition:.2s; }
+.sidebar button:hover { background:#2a3942; }
+.main { flex:1; padding:25px; overflow-y:auto; }
+.section h2 { margin-top:0; }
+input,textarea { width:100%; padding:10px; margin:8px 0; border-radius:8px; border:1px solid #ccc; }
+button { background:#00a884; color:white; padding:10px 15px; border:none; border-radius:8px; cursor:pointer; }
+button:hover { background:#019c78; }
+.hidden { display:none; }
+.card { background:white; padding:15px; border-radius:12px; margin-top:10px; box-shadow:0 2px 6px rgba(0,0,0,.1); }
+img { border-radius:12px; max-width:100%; }
+</style>
+</head>
+<body>
+
+<div class="sidebar">
+<h2>Voxa Live</h2>
+<button onclick="showSection('rules')">Rules</button>
+<button onclick="showSection('news')">News</button>
+<button onclick="showSection('debate')">Debates</button>
+<button onclick="showSection('stories')">Stories</button>
+<button onclick="showSection('chat')">Chat</button>
+<button onclick="showSection('profile')">Profile</button>
+</div>
+<div class="main">
+
+<!-- LOGIN -->
+<div id="login" class="section">
+<h2>Login / Register</h2>
+<input type="text" id="phoneNumber" placeholder="+27...">
+<div id="recaptcha-container"></div>
+<button onclick="sendOTP()">Send OTP</button>
+
+<input type="text" id="otp" placeholder="Enter OTP">
+<button onclick="verifyOTP()">Verify</button>
+</div>
+
+<!-- NEWS -->
+<div id="news" class="section hidden">
+<h2>Trending News</h2>
+<input type="text" id="newsTitle" placeholder="News title">
+<textarea id="newsContent" placeholder="Write news..."></textarea>
+<button onclick="postNews()">Post</button>
+<div id="newsList"></div>
+</div>
+
+<!-- DEBATES -->
+<div id="debate" class="section hidden">
+<h2>Debates</h2>
+<input type="text" id="debateTopic" placeholder="Debate topic">
+<button onclick="createDebate()">Create Debate</button>
+<h3>Top Arguments</h3>
+<div id="leaderboard"></div>
+<div id="debateList"></div>
+</div>
+<!-- STORIES -->
+<div id="stories" class="section hidden">
+<h2>Stories</h2>
+<input type="file" id="storyFile">
+<button onclick="postStory()">Post Story</button>
+<div id="storyList"></div>
+</div>
+
+<!-- CHAT -->
+<div id="chat" class="section hidden">
+<h2>Chat</h2>
+<div id="chatBox" style="height:300px; overflow-y:auto;"></div>
+<input type="text" id="chatMessage" placeholder="Type message...">
+<button onclick="sendMessage()">Send</button>
+</div>
+
+<!-- PROFILE -->
+<div id="profile" class="section hidden">
+<h2>Your Profile</h2>
+<input type="text" id="name" placeholder="Name">
+<textarea id="bio" placeholder="Bio"></textarea>
+<input type="file" id="profilePic">
+<button onclick="saveProfile()">Save Profile</button>
+</div>
+<!-- RULES -->
+<div id="rules" class="section hidden">
+  <h2>Community Rules</h2>
+  <ul>
+    <li>Be respectful to all users.</li>
+    <li>No hate speech or offensive content.</li>
+    <li>Post accurate news only.</li>
+    <li>Do not spam debates or chat.</li>
+    <li>Respect others' privacy.</li>
+    <li>Stories should follow local laws and guidelines.</li>
+  </ul>
+  <button onclick="showSection('news')">Back to News</button>
+</div>
+</div>
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { getAuth, RecaptchaVerifier, signInWithPhoneNumber } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+import { getFirestore, collection, doc, addDoc, setDoc, getDoc, onSnapshot, query, orderBy, where } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+import { getStorage, ref, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-storage.js";
+
+// Firebase config
+const firebaseConfig = {
+  apiKey: "AIzaSyDL7dnKnzKTCPSPqjFOCL98vx484Bgy3X0",
+  authDomain: "voxa-76847.firebaseapp.com",
+  projectId: "voxa-76847",
+  storageBucket: "voxa-76847.appspot.com",
+  messagingSenderId: "837089307670",
+  appId: "1:837089307670:web:b0d3ba40faa7b304655937"
+};
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+const storage = getStorage(app);
+
+// Section switcher
+window.showSection = id => {
+  document.querySelectorAll('.section').forEach(sec=>sec.classList.add('hidden'));
+  document.getElementById(id).classList.remove('hidden');
+}
+// OTP Login
+window.recaptchaVerifier = new RecaptchaVerifier('recaptcha-container',{size:'normal'},auth);
+
+window.sendOTP = async () => {
+  const phoneNumber = document.getElementById("phoneNumber").value;
+  try {
+    const confirmationResult = await signInWithPhoneNumber(auth, phoneNumber, window.recaptchaVerifier);
+    window.confirmationResult = confirmationResult;
+    alert("OTP sent!");
+  } catch(err){ alert(err.message); }
+};
+
+window.verifyOTP = async () => {
+  const code = document.getElementById("otp").value;
+  try {
+    await window.confirmationResult.confirm(code);
+    alert("Login Successful!");
+    showSection("news");
+    loadProfile(); loadNews(); loadTrendingDebates();
+    loadLeaderboard(); loadChat(); loadStories();
+  } catch(err){ alert(err.message); }
+};
+
+// PROFILE
+window.saveProfile = async () => {
+  const user = auth.currentUser;
+  const name = document.getElementById("name").value;
+  const bio = document.getElementById("bio").value;
+  const file = document.getElementById("profilePic").files[0];
+  const city="Cape Town", country="South Africa";
+  if(file){
+  const fileRef = ref(storage, "profiles/"+user.uid);
+    await uploadBytes(fileRef, file);
+    const url = await getDownloadURL(fileRef);
+    await setDoc(doc(db,"users",user.uid),{name,bio,city,country,photo:url},{merge:true});
+  } else {
+    await setDoc(doc(db,"users",user.uid),{name,bio,city,country},{merge:true});
+  }
+  alert("Profile saved!");
+};
+
+window.loadProfile = async () => {
+  const user = auth.currentUser;
+  const docSnap = await getDoc(doc(db,"users",user.uid));
+  if(docSnap.exists()){
+    document.getElementById("name").value = docSnap.data().name || "";
+    document.getElementById("bio").value = docSnap.data().bio || "";
+  }
+};
+
+// NEWS
+window.postNews = async () => {
+  const user = auth.currentUser;
+  const title = document.getElementById("newsTitle").value;
+  const content = document.getElementById("newsContent").value;
+  await addDoc(collection(db,"news"),{userId:user.uid,title,content,likes:0,city:"Cape Town",country:"South Africa",createdAt:serverTimestamp()});
+  document.getElementById("newsTitle").value=""; document.getElementById("newsContent").value="";
+};
+window.loadNews = () => {
+  const q = query(collection(db,"news"),where("country","==","South Africa"),orderBy("createdAt","desc"));
+  onSnapshot(q, snapshot => {
+    const list = document.getElementById("newsList"); list.innerHTML="";
+    snapshot.forEach(docSnap => {
+      const data = docSnap.data();
+      list.innerHTML += `<div class="card"><h3>${data.title}</h3><p>${data.content}</p></div>`;
+    });
+  });
+};
+
+// DEBATES
+window.createDebate = async () => {
+  const user = auth.currentUser;
+  const topic = document.getElementById("debateTopic").value;
+  await addDoc(collection(db,"debates"),{userId:user.uid,topic,sideA:0,sideB:0,city:"Cape Town",country:"South Africa",createdAt:serverTimestamp()});
+  document.getElementById("debateTopic").value="";
+};
+
+window.loadTrendingDebates = () => {
+  const q = query(collection(db,"debates"),where("country","==","South Africa"));
+  onSnapshot(q, snapshot => {
+    const list = document.getElementById("debateList"); list.innerHTML="";
+    snapshot.forEach(docSnap=>{
+      const data = docSnap.data();
+      list.innerHTML += `<div class="card"><h3>${data.topic}</h3>
+      <button onclick="voteDebate('${docSnap.id}','sideA',${data.sideA})">Side A (${data.sideA})</button>
+      <button onclick="voteDebate('${docSnap.id}','sideB',${data.sideB})">Side B (${data.sideB})</button></div>`;
+    });
+  });
+};
+window.voteDebate = async (id,side,current) => {
+  await setDoc(doc(db,"debates",id),{[side]:current+1},{merge:true});
+};
+
+window.loadLeaderboard = window.loadTrendingDebates;
+
+// STORIES
+window.postStory = async () => {
+  const user = auth.currentUser;
+  const file = document.getElementById("storyFile").files[0];
+  if(!file) return alert("Select a file!");
+  const fileRef = ref(storage, `stories/${user.uid}/${Date.now()}`);
+  await uploadBytes(fileRef,file);
+  const url = await getDownloadURL(fileRef);
+  await addDoc(collection(db,"stories"),{userId:user.uid,url,createdAt:serverTimestamp()});
+  document.getElementById("storyFile").value="";
+};
+
+window.loadStories = () => {
+  const cutoff = Date.now() - 24*60*60*1000;
+  const q = query(collection(db,"stories"),where("createdAt",">",cutoff));
+  onSnapshot(q,snapshot => {
+    const list = document.getElementById("storyList"); list.innerHTML="";
+    snapshot.forEach(docSnap => {
+      list.innerHTML += `<div class="card"><img src="${docSnap.data().url}"></div>`;
+    });
+  });
+};
+// CHAT
+window.sendMessage = async () => {
+  const user = auth.currentUser;
+  const msg = document.getElementById("chatMessage").value;
+  if(!msg) return;
+  await addDoc(collection(db,"messages"),{sender:user.uid,text:msg,timestamp:serverTimestamp()});
+  document.getElementById("chatMessage").value="";
+};
+
+window.loadChat = () => {
+  const q = query(collection(db,"messages"),orderBy("timestamp"));
+  onSnapshot(q,snapshot => {
+    const chatBox = document.getElementById("chatBox"); chatBox.innerHTML="";
+    snapshot.forEach(docSnap => {
+      chatBox.innerHTML += `<div class="card">${docSnap.data().text}</div>`;
+    });
+    chatBox.scrollTop = chatBox.scrollHeight;
+  });
+};
+</script>
+
+</body>
+</html>
